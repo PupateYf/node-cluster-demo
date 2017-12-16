@@ -34,3 +34,10 @@ The second approach is where the master process creates the listen socket and se
 The second approach should, in theory, give the best performance. In practice however, distribution tends to be very unbalanced due to operating system scheduler vagaries. Loads have been observed where over 70% of all connections ended up in just two processes, out of a total of eight.
 
 第二种方式是master主控进程创建一个监听socket并将它发给某几个workers，理论上，这种方式在性能表现上更好。而实际上，这种分发机制对于进程的负载是很不均衡的，这是由于操作系统时间片是经常变动的。据观察，70%的连接通常只会被两个进程所处理而此时全局总共有8个进程在运行。
+
+## 主控进程与子进程之间的区别
+
+由于`server.listen()`将大量的工作交给了主控进程，所以以下三项导致了子进程有别于普通进程
+- `server.listen({fd: 7})` 由于这个消息传递给了主控进程，文件描述符7 将会在父进程中被监听，而相关的处理将交给worker进程。而不是平常由进程去监听 文件描述符7 指向的文件然后在进行处理的这么一种机制。
+- `server.listen(handle)` 监听handle(object类型,可以是server,socket或者是拥有fd属性的object)会令到worker直接使用该handle而不是去告知主控进程
+- `server.listen(0)` 一般情况下，这会使得servers监听一个随机的端口。然而，在一个子进程中，每个worker每当他们执行listen(0)将会接收到同一个随机端口号。本质上来说，这个端口号在第一次调用listen(0)时候确实是随机的，但在之后都是固定的同一个。如果要每个worker监听唯一的端口号，那么就应该以worker id的纬度来生成并监听端口号。
