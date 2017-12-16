@@ -5,11 +5,11 @@ const cluster = require('cluster')
 var cpusLength = os.cpus().length
 
 if (cluster.isMaster) {
-    console.log(`Run master and the length of cpus is ${cpusLength}`)
     for (let i = 0; i < cpusLength; i++) {
         cluster.fork()
     }
 } else {
+    console.log(`Run here`)
     http.createServer((req, res) => {
         res.writeHead(200)
         res.end('Hey guys')
