@@ -53,7 +53,7 @@ The second approach should, in theory, give the best performance. In practice ho
 由于`server.listen()`将大量的工作交给了主控进程，所以以下三项导致了子进程有别于普通进程
 - `server.listen({fd: 7})` 由于这个消息传递给了主控进程，文件描述符7 将会在父进程中被监听，而句柄将交给worker进程。而不是父进程去监听worker进程关于文件描述符7的引用所产生的消息。
 - `server.listen(handle)` 监听handle(object类型,可以是server,socket或者是拥有fd属性的object)会令到worker直接使用该handle而不是去告知主控进程
-- `server.listen(0)` 一般情况下，这会使得servers监听一个随机的端口。然而，在一个子进程中，每个worker每当他们执行listen(0)将会接收到同一个随机端口号。本质上来说，这个端口号在第一次调用listen(0)时候确实是随机的，但在之后都是固定的同一个。如果要每个worker监听唯一的端口号，那么就应该以worker id的纬度来生成并监听端口号。
+- `server.listen(0)` 一般情况下，这会使得server监听一个随机的端口。然而，在一个子进程中，每个worker每当他们执行listen(0)将会接收到同一个随机端口号。本质上来说，这个端口号在第一次调用listen(0)时候确实是随机的，但在之后都是固定的同一个(端口仅由master进程中的内部TCP服务器监听了一次)。如果要每个worker监听唯一的端口号，那么就应该以worker id的纬度来生成并监听端口号。
 
 ## cluster & child_process
 
@@ -70,6 +70,46 @@ function createWorkerProcess(){
 }
 ```
 可以发现 cluster 是引用了`child_process`模块，每个worker都是使用`child_process.fork()`函数创建的。因此worker与master之间通过IPC进行通信。
+
+## 关于`app.listen(port)`
+
+代码中每个cluster都监听了同一个端口，但没有报端口错误。
+
+`app.listen`方法定义在`node/lib/net.js`中
+```js
+Server.prototype.listen = function(...args) {
+    //...
+    listenInCluster()
+}
+
+function listenInCluster(){
+    //...
+    cluster._getServer()
+}
+```
+在`node/lib/internal/cluster/child.js`中，定义了`cluster._getServer`方法
+```js
+cluster._getServer = function(){
+    //...
+    rr()
+}
+
+function rr(){
+    function listen(){
+        return 0
+    }
+    const handle = { listen }
+    handles[key] = handle
+}
+```
+可以发现，`listen`方法被重写，不再执行监听端口的操作
+
+参照这里的[说法](https://cnodejs.org/topic/56e84480833b7c8a0492e20c)
+- 端口仅由master进程中的内部TCP服务器监听了一次
+- 不会出现端口被重复监听报错，是由于，worker进程中，最后执行监听端口操作的方法，已被cluster模块主动hack
+## 关于master主控进程传递请求到worker进程
+通过监听master中创建的TCP服务器`connection`事件，由`round-robin`选出worker，向其发送`newconn`事件，worker监听该事件，用接收到的cb处理该请求并返回
+
 
 ## IPC
 进度程间的通讯(IPC (Inter-process communication)
