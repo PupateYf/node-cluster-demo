@@ -112,11 +112,23 @@ function rr(){
 - 不会出现端口被重复监听报错，是由于，worker进程中，最后执行监听端口操作的方法，已被cluster模块主动hack
 ## 关于master主控进程传递请求到worker进程
 
-通过监听master中创建的TCP服务器`connection`事件，由`round-robin`选出worker，向其发送`newconn`事件，worker监听该事件，用接收到的cb处理该请求并返回
-
-`newconn`事件在`node/lib/internal/cluster/round_robin_handle.js`中发布
- 
+在`node-master/lib/internal/cluster/master.js`中能够看到关于`round-robin`代码(有删减)：
 ```js
+const RoundRobinHandle = require('internal/cluster/round_robin_handle');
+
+function queryServer(){
+  var constructor = RoundRobinHandle;
+  handles[key] = handle = new constructor()
+}
+```
+
+而在round-robin的对应定义中能看到，其是通过监听master中创建的TCP服务器`connection`事件，由`round-robin`选出worker，向其发送`newconn`事件，worker监听该事件，用接收到的cb处理该请求并返回
+```js
+function RoundRobinHandle(){
+  this.server.once('listening', () => {
+    this.handle.onconnection = (err, handle) => this.distribute(err, handle);
+  })
+}
 RoundRobinHandle.prototype.handoff = function(worker) {
     const message = { act: 'newconn', key: this.key }
     sendHelper(worker.process, message, handle, (reply) => {
